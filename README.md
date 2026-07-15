@@ -12,7 +12,8 @@ The REPD GIS Heatmap subsystem is an automated Python pipeline that ingests UK g
 
 \* \*\*Inputs:\*\* REPD raw CSV data (UK Gov), pandas data structures.
 
-\* \*\*Outputs:\*\* Cleaned geospatial dataset (`repd\_cleaned.csv`), Interactive HTML map (`index.html`) featuring capacity heatmaps and categorised pin layers.
+* **Outputs:** 1. `index.html` (Presentation Layer): Interactive, triple-layered diagnostic mapping engine featuring capacity heatmaps, grid constraint overlays, and color-coded generation asset pins with integrated analytics popups.
+  2. `data/repd_atlas_ready.geojson` (Integration Layer): Machine-readable spatial database for downstream consumption (Site Ranking Engine, FastAPI endpoints). Contains queryable properties: `Site Name`, `Technology Type`, `Installed Capacity (MWelec)`, `Curtailment_MWh`, and `Constraint_Score`.
 
 \* \*\*Dependencies:\*\* pandas, geopandas, folium (full list in `requirements.txt`).
 
