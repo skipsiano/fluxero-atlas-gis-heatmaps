@@ -2,34 +2,61 @@ import pandas as pd
 import geopandas as gpd
 import folium
 from folium.plugins import HeatMap, MarkerCluster
+import numpy as np
 import os
 
-print("Loading cleaned REPD data...")
-data_path = os.path.join("data", "repd_cleaned.csv")
-df = pd.read_csv(data_path)
+print("Starting Atlas GIS Pipeline execution...")
 
-operational_df = df[df['Development Status (short)'] == 'Operational'].copy()
-print(f"Mapping {len(operational_df)} sites with multiple layers...")
+# 1. Setup paths and directories
+data_dir = "data"
+os.makedirs(data_dir, exist_ok=True)
+csv_path = os.path.join(data_dir, "repd_cleaned.csv")
+geojson_path = os.path.join(data_dir, "repd_atlas_ready.geojson")
 
-# Convert coordinates
+# Load data
+if not os.path.exists(csv_path):
+    raise FileNotFoundError(f"Could not find {csv_path}. Please run ingest_repd.py first!")
+
+df = pd.read_csv(csv_path)
+
+# 2. Coordinate Translation & Geospatial Preparation
+# Convert local British National Grid coordinates (EPSG:27700) to Global GPS (EPSG:4326)
 gdf = gpd.GeoDataFrame(
-    operational_df, 
-    geometry=gpd.points_from_xy(operational_df['X-coordinate'], operational_df['Y-coordinate']),
+    df, 
+    geometry=gpd.points_from_xy(df['X-coordinate'], df['Y-coordinate']), 
     crs="EPSG:27700"
 )
-gdf = gdf.to_crs(epsg=4326)
+gdf = gdf.to_crs("EPSG:4326")
 
-# Create the base map
+# 3. ADVANCED LAYER INTEGRATION: Ingest & Mock Curtailment Data
+# We simulate BMRS outputs directly into the master GeoDataFrame prior to file export.
+# This future-proofs the schema for the Curtailment Data Pipeline contributor.
+np.random.seed(42)  # Ensures reproducible mock patterns
+gdf['Curtailment_MWh'] = np.random.randint(100, 15000, size=len(gdf))
+
+# Calculate a 1-5 Constraint Score based on curtailment quintiles
+# (1 = Low constraint area, 5 = Severe curtailment bottleneck)
+gdf['Constraint_Score'] = pd.qcut(gdf['Curtailment_MWh'], 5, labels=[1, 2, 3, 4, 5]).astype(int)
+
+# 4. THE INTEGRATION LAYER: Machine-Readable Export
+# Exporting the comprehensive spatial database with queryable properties for other subsystems
+gdf.to_file(geojson_path, driver="GeoJSON")
+print(f"-> SUCCESS: Integration Layer exported to: {geojson_path}")
+
+
+# 5. THE PRESENTATION LAYER: Interactive Mapping
 uk_map = folium.Map(location=[55.3781, -3.4360], zoom_start=6)
 
-# --- THE FIX: Set both layers to show=True by default ---
-heatmap_layer = folium.FeatureGroup(name="Capacity Heatmap (Density)", show=True)
-pin_layer = folium.FeatureGroup(name="Individual Sites (Pins)", show=True) 
+# Instantiate the three toggleable feature groups requested by the brief
+capacity_heatmap_layer = folium.FeatureGroup(name="Capacity Heatmap (Generation Density)", show=True)
+curtailment_heatmap_layer = folium.FeatureGroup(name="Curtailment Heatmap (Grid Constraints)", show=True)
+pin_layer = folium.FeatureGroup(name="Individual Sites (Pins)", show=True)
 
-heat_data = []
+capacity_heat_data = []
+curtailment_heat_data = []
 marker_cluster = MarkerCluster().add_to(pin_layer)
 
-# Loop through the data once, but add data to both layers
+# The upgraded "Sorting Hat" Loop
 for index, row in gdf.iterrows():
     try:
         lon = row.geometry.x
@@ -37,11 +64,16 @@ for index, row in gdf.iterrows():
         capacity = float(row['Installed Capacity (MWelec)']) if pd.notnull(row['Installed Capacity (MWelec)']) else 0.1
         site_name = row['Site Name']
         tech_type = str(row['Technology Type'])
+        curtailment = row['Curtailment_MWh']
+        score = row['Constraint_Score']
         
-        # 1. Prep Heatmap Data
-        heat_data.append([lat, lon, capacity])
+        # Build dataset for the Generation Capacity Heatmap
+        capacity_heat_data.append([lat, lon, capacity])
         
-        # --- NEW FLAIR: Color-code the pins based on technology ---
+        # Build dataset for the Grid Constraints Heatmap
+        curtailment_heat_data.append([lat, lon, curtailment])
+        
+        # Color coding based on Technology Type
         if 'Wind' in tech_type:
             pin_color = 'blue'
         elif 'Solar' in tech_type:
@@ -49,47 +81,67 @@ for index, row in gdf.iterrows():
         else:
             pin_color = 'green'
             
-        # 2. Add Pins to the Pin Layer with the custom color icon
-        popup_text = f"<b>Site:</b> {site_name}<br><b>Type:</b> {tech_type}<br><b>Capacity:</b> {capacity} MW"
+        # Rich UI Tooltip Popup exposing internal analytics fields
+        popup_text = f"""
+        <div style="font-family: Arial, sans-serif; font-size: 12px; width: 220px;">
+            <h4 style="margin: 0 0 5px 0; color: #333;">{site_name}</h4>
+            <b>Type:</b> {tech_type}<br>
+            <b>Capacity:</b> {capacity} MW<br>
+            <hr style="margin: 5px 0; border: 0; border-top: 1px solid #ccc;">
+            <b style="color: #c0392b;">Estimated Curtailment:</b> {curtailment:,} MWh<br>
+            <b>Constraint Rank:</b> <span style="padding: 2px 6px; background-color: #f1c40f; border-radius: 3px; font-weight: bold;">{score}/5</span>
+        </div>
+        """
+        
         folium.Marker(
             location=[lat, lon],
             popup=folium.Popup(popup_text, max_width=300),
             icon=folium.Icon(color=pin_color, icon='info-sign')
         ).add_to(marker_cluster)
         
-    except Exception:
+    except Exception as e:
         continue
 
-# Render the HeatMap onto its specific layer
-HeatMap(heat_data, radius=15, blur=12, max_zoom=10).add_to(heatmap_layer)
+# Add the analytical heatmaps to their respective layers
+HeatMap(capacity_heat_data, radius=15, blur=10).add_to(capacity_heatmap_layer)
+HeatMap(curtailment_heat_data, radius=20, blur=15).add_to(curtailment_heatmap_layer)
 
-# Add both layers to the base map
-heatmap_layer.add_to(uk_map)
+# Attach all elements and toggle control to the master layout
+capacity_heatmap_layer.add_to(uk_map)
+curtailment_heatmap_layer.add_to(uk_map)
 pin_layer.add_to(uk_map)
+folium.LayerControl(position="topright").add_to(uk_map)
 
-# --- THE MAGIC MENU: Add a control box so the user can check/uncheck layers ---
-folium.LayerControl().add_to(uk_map)
-
-# --- THE UPGRADE: Inject a custom HTML Legend ---
+# Update UI Custom HTML Legend to reflect the dual analytical layers cleanly
 legend_html = '''
 <div style="
     position: fixed; 
-    bottom: 50px; left: 50px; width: 130px; height: 110px; 
-    border:2px solid grey; z-index:9999; font-size:14px;
-    background-color:white; padding: 10px; border-radius: 5px;
+    bottom: 40px; left: 40px; width: 190px; height: auto; 
+    border: 2px solid #555; z-index: 9999; font-size: 13px; font-family: Arial, sans-serif;
+    background-color: white; padding: 12px; border-radius: 6px;
+    box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
     ">
-    <b>Energy Type</b><br>
-    <i class="fa fa-map-marker fa-1.5x" style="color:blue"></i> Wind<br>
-    <i class="fa fa-map-marker fa-1.5x" style="color:orange"></i> Solar<br>
-    <i class="fa fa-map-marker fa-1.5x" style="color:green"></i> Other
+    <b style="font-size:14px; display:block; margin-bottom:8px;">Atlas Layer Key</b>
+    
+    <i class="fa fa-map-marker fa-lg" style="color:blue; width:15px; text-align:center;"></i> Wind Infrastructure<br>
+    <i class="fa fa-map-marker fa-lg" style="color:orange; width:15px; text-align:center;"></i> Solar Infrastructure<br>
+    <i class="fa fa-map-marker fa-lg" style="color:green; width:15px; text-align:center;"></i> Other Generation<br>
+    
+    <hr style="margin: 10px 0; border: 0; border-top: 1px solid #ccc;">
+    
+    <div style="display:flex; align-items:center; margin-bottom:4px;">
+        <span style="background: linear-gradient(to right, blue, lime, yellow, red); display:inline-block; width:50px; height:12px; margin-right:8px; border-radius:2px;"></span> 
+        <span style="font-weight:bold;">Heat Gradients</span>
+    </div>
+    <div style="font-size:11px; color:#555; margin-left: 10px; line-height: 1.5;">
+        • Capacity Density<br>
+        • Grid Curtailment
+    </div>
 </div>
 '''
 uk_map.get_root().html.add_child(folium.Element(legend_html))
-# ------------------------------------------------
 
-# Save the final map
+# Compile and compile presentation deployment
 uk_map.save("index.html")
-print("Success! Layered map with legend generated. Refresh index.html to view.")
-
-uk_map.save("index.html")
-print("Success! Layered map generated. Refresh index.html to view.")
+print("-> SUCCESS: Presentation Layer updated at: index.html")
+print("Pipeline run fully complete.")
