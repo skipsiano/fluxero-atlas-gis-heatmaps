@@ -1,9 +1,3 @@
-\# REPD GIS Heatmap Subsystem
-
-
-
-\*\*Technical Summary\*\*
-
 The REPD GIS Heatmap subsystem is an automated Python pipeline that ingests UK government renewable energy data, translates British National Grid coordinates into standard GPS, and generates a layered, interactive Folium map to identify optimal infrastructure routing zones.
 
 
