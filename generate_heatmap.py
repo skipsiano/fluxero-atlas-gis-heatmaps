@@ -45,16 +45,26 @@ print(f"-> SUCCESS: Integration Layer exported to: {geojson_path}")
 
 
 # 5. THE PRESENTATION LAYER: Interactive Mapping
-uk_map = folium.Map(location=[55.3781, -3.4360], zoom_start=6)
+uk_map = folium.Map(
+    location=[55.3781, -3.4360],
+    zoom_start=6,
+    tiles="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+    attr="Tiles &copy; Esri",
+)
 
 # Instantiate the three toggleable feature groups requested by the brief
 capacity_heatmap_layer = folium.FeatureGroup(name="Capacity Heatmap (Generation Density)", show=True)
-curtailment_heatmap_layer = folium.FeatureGroup(name="Curtailment Heatmap (Grid Constraints)", show=True)
+curtailment_heatmap_layer = folium.FeatureGroup(name="Curtailment Heatmap (Grid Constraints)", show=False)
 pin_layer = folium.FeatureGroup(name="Individual Sites (Pins)", show=True)
 
 capacity_heat_data = []
 curtailment_heat_data = []
 marker_cluster = MarkerCluster().add_to(pin_layer)
+
+cap_col = pd.to_numeric(gdf['Installed Capacity (MWelec)'], errors='coerce')
+cap_ref = cap_col.quantile(0.95)   # 95th percentile = "full red"
+curt_col = pd.to_numeric(gdf['Curtailment_MWh'], errors='coerce')
+curt_ref = curt_col.quantile(0.95)
 
 # The upgraded "Sorting Hat" Loop
 for index, row in gdf.iterrows():
@@ -67,11 +77,12 @@ for index, row in gdf.iterrows():
         curtailment = row['Curtailment_MWh']
         score = row['Constraint_Score']
         
-        # Build dataset for the Generation Capacity Heatmap
-        capacity_heat_data.append([lat, lon, capacity])
+                # Build dataset for the Generation Capacity Heatmap
+        capacity_heat_data.append([lat, lon, min(capacity / cap_ref, 1.0)])
         
         # Build dataset for the Grid Constraints Heatmap
-        curtailment_heat_data.append([lat, lon, curtailment])
+        if pd.notnull(curtailment):
+            curtailment_heat_data.append([lat, lon, min(float(curtailment) / curt_ref, 1.0)])
         
         # Color coding based on Technology Type
         if 'Wind' in tech_type:
@@ -103,7 +114,7 @@ for index, row in gdf.iterrows():
         continue
 
 # Add the analytical heatmaps to their respective layers
-HeatMap(capacity_heat_data, radius=15, blur=10).add_to(capacity_heatmap_layer)
+HeatMap(capacity_heat_data, radius=10, blur=8).add_to(capacity_heatmap_layer)
 HeatMap(curtailment_heat_data, radius=20, blur=15).add_to(curtailment_heatmap_layer)
 
 # Attach all elements and toggle control to the master layout
