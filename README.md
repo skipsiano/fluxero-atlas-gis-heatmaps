@@ -1,30 +1,27 @@
-<img width="1917" height="867" alt="image" src="https://github.com/user-attachments/assets/04897341-567c-4572-899b-1b4c1361e9a8" />
+# UK Renewable Energy Atlas — REPD GIS Heatmap
 
+![UK renewable capacity heatmap](images/map_preview.png)
 
+A Python pipeline that turns the UK Government's Renewable Energy Planning Database (14,274 operational sites) into an interactive map showing where generation capacity and grid constraints concentrate. Built during a data internship at Fluxero to inform siting decisions for modular hydrogen plants.
 
+**Data:** download the latest REPD extract from GOV.UK ("Renewable Energy Planning Database: quarterly extract"), then run `ingest_repd.py` followed by `generate_heatmap.py`.
 
-The REPD GIS Heatmap subsystem is an automated Python pipeline that ingests UK government renewable energy data, translates British National Grid coordinates into standard GPS, and generates a layered, interactive Folium map to identify optimal infrastructure routing zones.
+## How it works
 
+The pipeline ingests UK government renewable energy data, converts British National Grid coordinates into standard GPS, and generates a layered, interactive Folium map. Heatmap intensity is normalised against the 95th percentile of capacity, so hotspots reflect relative concentration rather than raw totals.
 
+## Integration specification
 
-\*\*Integration Specification\*\*
+- **Inputs:** REPD raw CSV data (UK Gov), pandas data structures.
+- **Outputs:**
+  1. `index.html` (presentation layer): interactive map with a capacity heatmap, a grid-constraint overlay, and colour-coded generation sites with pop-up details.
+  2. `data/repd_atlas_ready.geojson` (integration layer): machine-readable spatial data for downstream use, with properties `Site Name`, `Technology Type`, `Installed Capacity (MWelec)`, `Curtailment_MWh` and `Constraint_Score`.
+- **Dependencies:** pandas, geopandas, folium (full list in `requirements.txt`).
+- **Integration notes:** this repo is one subsystem of Fluxero's wider internal Atlas platform, which isn't public. The map can be embedded in a dashboard via an iframe, or the GeoJSON passed to other spatial tools.
 
-\* \*\*Inputs:\*\* REPD raw CSV data (UK Gov), pandas data structures.
+## Deployment instructions
 
-* **Outputs:** 1. `index.html` (Presentation Layer): Interactive, triple-layered diagnostic mapping engine featuring capacity heatmaps, grid constraint overlays, and color-coded generation asset pins with integrated analytics popups.
-  2. `data/repd_atlas_ready.geojson` (Integration Layer): Machine-readable spatial database for downstream consumption (Site Ranking Engine, FastAPI endpoints). Contains queryable properties: `Site Name`, `Technology Type`, `Installed Capacity (MWelec)`, `Curtailment_MWh`, and `Constraint_Score`.
-
-\* \*\*Dependencies:\*\* pandas, geopandas, folium (full list in `requirements.txt`).
-
-\* \*\*Integration Notes:\*\* This subsystem acts as a standalone visualisation layer. For integration into the wider Atlas platform, the `index.html` output can be embedded via an iframe into a web dashboard, or the core GeoDataFrame can be passed directly to Atlas's primary spatial database.
-
-
-
-\*\*Deployment Instructions\*\*
-
-1\. Clone the repository.
-
-2\. Create a virtual environment and run: `pip install -r requirements.txt`
-
-3\. Run the map generator: `python generate\_heatmap.py`
-
+1. Clone the repository.
+2. Create a virtual environment and run `pip install -r requirements.txt`.
+3. Download the REPD data (see above) and run `python ingest_repd.py`.
+4. Run the map generator: `python generate_heatmap.py`, then open `index.html`.
